@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Tent Allocator</title>
+
+<style>
+body { font-family: Arial; margin: 20px; }
+table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+th, td { border: 1px solid #ccc; padding: 6px; }
+th { background: #eee; }
+td { background: #f9f9f9; }
+button { padding: 8px 12px; margin: 5px; }
+.tent { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 6px; }
+.warning { color: red; font-weight: bold; }
+.placeholder { color: #999; }
+</style>
+
+</head>
+<body>
+
+<h1>🏕️ Tent Allocator</h1>
+
+<h2>Cubs</h2>
+<table id="cubsTable">
+<thead>
+<tr>
+<th>Name</th><th>Sex</th><th>Exp</th>
+<th>Friends</th><th>Together</th><th>Apart</th><th>Del</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Oliver</td><td>M</td><td>4</td>
+<td></td><td>Rhys</td><td></td>
+<td><button onclick="del(this)">❌</button></td>
+</tr>
+<tr>
+<td>Rhys</td><td>M</td><td>2</td>
+<td></td><td>Oliver</td><td></td>
+<td><button onclick="del(this)">❌</button></td>
+</tr>
+<tr>
+<td>Poppy</td><td>F</td><td>3</td>
+<td></td><td></td><td>Megan</td>
+<td><button onclick="del(this)">❌</button></td>
+</tr>
+<tr>
+<td>Megan</td><td>F</td><td>1</td>
+<td></td><td></td><td>Poppy</td>
+<td><button onclick="del(this)">❌</button></td>
+</tr>
+</tbody>
+</table>
+
+<button onclick="addRow('cubsTable')">➕ Add Cub</button>
+
+<h2>Tents</h2>
+<table id="tentsTable">
+<thead>
+<tr><th>Name</th><th>Capacity</th><th>Del</th></tr>
+</thead>
+<tbody>
+<tr>
+<td>4P Tent</td><td>4</td>
+<td><button onclick="del(this)">❌</button></td>
+</tr>
+<tr>
+<td>5P Tent</td><td>5</td>
+<td><button onclick="del(this)">❌</button></td>
+</tr>
+</tbody>
+</table>
+
+<button onclick="addRow('tentsTable')">➕ Add Tent</button>
+
+<br><br>
+<button onclick="allocate()">🏕️ Allocate</button>
+
+<h2>Results</h2>
+<div id="results"></div>
+
+<script>
+
+/* ✅ MAKE ALL CELLS EDITABLE + PLACEHOLDERS */
+function makeEditable(){
+    document.querySelectorAll("td").forEach(cell => {
+
+        if(cell.querySelector("button")) return;
+
+        cell.contentEditable = true;
+
+        if(cell.cellIndex === 3 ||
+           cell.cellIndex === 4 ||
+           cell.cellIndex === 5){
+
+            if(!cell.innerText){
+                cell.innerText = "";
+                cell.dataset.placeholder = "e.g. Rhys;Oliver";
+            }
+
+            cell.addEventListener("focus", function(){
+                if(this.innerText === this.dataset.placeholder){
+                    this.innerText = "";
+                    this.classList.remove("placeholder");
+                }
+            });
+
+            cell.addEventListener("blur", function(){
+                if(this.innerText.trim() === ""){
+                    this.innerText = "";
+                }
+            });
+        }
+
+    });
+}
+makeEditable();
+
+/* DELETE */
+function del(btn){
+    btn.closest("tr").remove();
+}
+
+/* ADD ROW */
+function addRow(id){
+    const tbody = document.querySelector(`#${id} tbody`);
+    const cols = tbody.rows[0].cells.length;
+
+    const row = tbody.insertRow();
+
+    for(let i=0;i<cols-1;i++){
+        const cell = row.insertCell();
+        cell.contentEditable = true;
+    }
+
+    const d = row.insertCell();
+    d.innerHTML = '<button onclick="del(this)">❌</button>';
+
+    makeEditable();
+}
+
+/* DATA */
+function getData(id){
+    return [...document.querySelectorAll(`#${id} tbody tr`)].map(r =>
+        [...r.cells].slice(0,-1).map(c=>c.innerText.trim())
+    );
+}
+
+function list(x){
+    if(!x) return [];
+    if(x.startsWith("e.g.")) return [];
+    return x.split(";").map(s=>s.trim()).filter(Boolean);
+}
+
+/* GROUPS */
+function buildGroups(cubs){
+    const map = Object.fromEntries(cubs.map(c=>[c.name,c]));
+    const visited=new Set();
+    const groups=[];
+
+    cubs.forEach(c=>{
+        if(visited.has(c.name)) return;
+
+        const stack=[c];
+        const g=[];
+
+        while(stack.length){
+            const cur=stack.pop();
+            if(visited.has(cur.name)) continue;
+
+            visited.add(cur.name);
+            g.push(cur);
+
+            cur.together.forEach(n=>{
+                if(map[n] && !visited.has(n)){
+                    stack.push(map[n]);
+                }
+            });
+        }
+
+        groups.push(g);
+    });
+
+    return groups;
+}
+
+function valid(tent, group){
+    if(tent.cap < group.length) return false;
+
+    if(tent.occ.length &&
+       tent.occ[0].sex !== group[0].sex) return false;
+
+    for(const g of group){
+        for(const o of tent.occ){
+            if(g.apart.includes(o.name) ||
+               o.apart.includes(g.name)) return false;
+        }
+    }
+
+    return true;
+}
+
+function score(tents){
+
+    let s=0;
+
+    const sizes=tents.map(t=>t.occ.length);
+    const avg = sizes.reduce((a,b)=>a+b,0)/tents.length;
+
+    tents.forEach(t=>{
+
+        const n=t.occ.length;
+
+        if(n===1) s -= 20;
+
+        s -= Math.abs(n-avg)*4;
+
+        t.occ.forEach(a=>{
+            t.occ.forEach(b=>{
+                if(a!==b && a.friends.includes(b.name)){
+                    s+=3;
+                }
+            });
+        });
+
+        if(n>0){
+            const avgExp = t.occ.reduce((x,c)=>x+c.exp,0)/n;
+            s -= Math.abs(avgExp-3);
+        }
+
+    });
+
+    return s;
+}
+
+/* ✅ STRONG REBALANCE (KEY FIX) */
+function rebalance(tents){
+
+    let improved = true;
+
+    while(improved){
+        improved = false;
+
+        for(const big of tents){
+
+            for(const small of tents){
+
+                if(big===small) continue;
+
+                if(big.occ.length - small.occ.length <= 2) continue;
+
+                for(let i=0;i<big.occ.length;i++){
+
+                    const cub = big.occ[i];
+
+                    big.occ.splice(i,1);
+
+                    if(valid(small,[cub])){
+
+                        small.occ.push(cub);
+                        improved = true;
+                        break;
+                    }
+
+                    big.occ.splice(i,0,cub);
+                }
+
+                if(improved) break;
+            }
+
+            if(improved) break;
+        }
+    }
+}
+
+/* SWAP */
+function optimise(tents){
+
+    let improved=true;
+
+    while(improved){
+        improved=false;
+
+        for(let i=0;i<tents.length;i++){
+            for(let j=i+1;j<tents.length;j++){
+
+                const t1=tents[i];
+                const t2=tents[j];
+
+                for(let a=0;a<t1.occ.length;a++){
+                    for(let b=0;b<t2.occ.length;b++){
+
+                        const c1=t1.occ[a];
+                        const c2=t2.occ[b];
+
+                        t1.occ[a]=c2;
+                        t2.occ[b]=c1;
+
+                        if(!valid(t1,[c2]) || !valid(t2,[c1])){
+                            t1.occ[a]=c1;
+                            t2.occ[b]=c2;
+                            continue;
+                        }
+
+                        if(score(tents) > score(tents)){
+                            improved=true;
+                        } else {
+                            t1.occ[a]=c1;
+                            t2.occ[b]=c2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* MAIN */
+function allocate(){
+
+    const cubRows=getData("cubsTable");
+    const tentRows=getData("tentsTable");
+
+    const cubs=cubRows.map(r=>({
+        name:r[0],
+        sex:r[1],
+        exp:parseInt(r[2])||3,
+        friends:list(r[3]),
+        together:list(r[4]),
+        apart:list(r[5]),
+    }));
+
+    const tents=tentRows.map(r=>({
+        name:r[0],
+        cap:parseInt(r[1]),
+        occ:[]
+    }));
+
+    const used=new Set();
+    const groups=buildGroups(cubs);
+
+    groups.forEach(group=>{
+        for(const t of tents){
+            if(valid(t,group)){
+                group.forEach(c=>{
+                    if(!used.has(c.name)){
+                        t.occ.push(c);
+                        used.add(c.name);
+                        t.cap--;
+                    }
+                });
+                return;
+            }
+        }
+    });
+
+    cubs.forEach(c=>{
+        if(used.has(c.name)) return;
+
+        for(const t of tents){
+            if(valid(t,[c])){
+                t.occ.push(c);
+                used.add(c.name);
+                t.cap--;
+                break;
+            }
+        }
+    });
+
+    rebalance(tents);
+    optimise(tents);
+
+    const un=cubs.filter(c=>!used.has(c.name));
+
+    const res=document.getElementById("results");
+    res.innerHTML="";
+
+    if(un.length){
+        res.innerHTML += `<div class="warning">⚠️ Unallocated: ${un.map(c=>c.name).join(", ")}</div>`;
+    }
+
+    tents.forEach((t,i)=>{
+        res.innerHTML += `<div class="tent"><b>${t.name} ${i+1}</b>: ${
+            t.occ.length ? t.occ.map(c=>c.name).join(", ") : "[Unused]"
+        }</div>`;
+    });
+}
+
+</script>
+
+</body>
+</html>
